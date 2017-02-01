@@ -1,0 +1,124 @@
+#nginx目录介绍:
+cd /ulsr/local/nginx, 看到如下4个目录
+./
+....conf 配置文件
+... html 网页文件
+...logs 日志文件
+...sbin 主要二进制程序
+
+#控制命令
+kill xxx[进程号] 或者 pkill nginx 来杀死进程 然后启动
+这是一种暴力方式；
+nginx程序可以用一些参数
+如:
+nginx -t 测试配置是否正确
+nginx -s reload 加载最新配置 (等待结束杀死，然后开辟新的)
+nginx -s reopen 重新打开日志
+nginx -s stop 立即停止(不等待，立即杀死)
+nginx -s quit 优雅停止 （等待结束杀死）
+
+
+#Nginx配置虚拟主机
+基于域名的虚拟主机
+①vim /nginx/conf/nginx.conf
+ server {
+        listen       80;
+        server_name  a.com;
+        root   /var/www/a.com; #默认的目录
+        index  index.php index.html; #如果访问根目录，则展示index.php或者index.html
+        location ~ \.php$ {#解析php文件使用的，$DOCUMENT_ROOT表示解析root目录下所有的php文件
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_index  index.php;
+            fastcgi_param  SCRIPT_FILENAME  $DOCUMENT_ROOT$fastcgi_script_name;
+            include        fastcgi_params;
+        }
+}
+②改本地host文件，访问a.com.
+
+
+#反向代理
+用nginx做反向代理用proxy_pass
+以反向代理为例, nginx不自己处理图片的相关请求,而是把图片的请求转发给apache来处理.
+这就是传说的”动静分离”,动静分离不是一个严谨的说法,叫反向代理比较规范.
+配置如下:
+location ~ \.(jpg|jpeg|png|gif)$ {
+proxy_pass HTTP://IP:port;
+}
+
+#负载均衡
+Upstream {}模块 把多台服务器加入到一个组
+然后 memcached_pass, fastcgi_pass, proxy_pass ==> upstream组
+upstream servername {
+server 192.168.1.204:80 weight=1 max_fails=2 fail_timeout=30s;
+server 192.168.1.205:80 weight=1 max_fails=2 fail_timeout=30s;
+server ip:prot 权重 最大失败次数 最大连接时间
+}
+location ~ \.(jpg|jpeg|png|gif)$ {
+proxy_pass HTTP://servername;
+}
+
+#Nginx与Rewrite规则
+user.php
+<?php
+$a = [
+1=>'1111111111',
+2=>'2222222222',
+3=>'3333333333'
+];
+$id = $_GET['id'];
+echo $a[$id];
+user.php?id=3 ---> user-3.html
+location / {
+root html;
+index index.html index.htm;
+rewrite /user-(\w+)\.html /user.php?id=$1;
+}
+
+#日志管理
+我们观察nginx的server段,可以看到如下类似信息
+#access_log logs/access.log main;
+这说明 该server, 它的访问日志的文件是 logs/access.log ,
+日志格式”main”格式.
+main格式是什么?
+默认的日志格式: main
+log_format main '$remote_addr - $remote_user [$time_local] "$req
+uest" '
+'$status $body_bytes_sent "$http_referer" '
+'"$http_user_agent" "$http_x_forwarded_for"
+';
+默认的main日志格式,记录这么几项
+远程IP- 远程用户 [用户时间] 请求方法(如GET/POST)
+请求体body长度 referer来源信息http-user-agent用户代理/蜘蛛 被转发的请求的原始IP
+注：
+http_x_forwarded_for:在经过代理时,代理把你的本来IP加在此头信息中,传输你的原始IP
+除了main格式,你可以自定义其他格式.
+log_format mylog '$remote_addr [$time_local] "$request" '
+'$status $body_bytes_sent "$http_referer" '
+'"$http_user_agent"';
+在server段指定日志目录和使用的日志格式
+server {
+listen 80;
+#下面声明a.com使用mylog格式日志，并保存在logs/a.com.log文件中
+access_log logs/a.com.log mylog;
+server_name a.com www.a.com;
+....
+}
+重启nginx,再次访问a.com后，查看日志文件a.com.log;
+
+
+#全局配置
+//有一个工作的子进程，可以修改，但无大益处，因为要争夺cpu资源
+//一般设置为cpu数*核数
+worker_processes 1;
+events {
+//一个子进程能同时允许多少连接
+worker_connections 1024; 
+}
+http { 
+Server1 { //虚拟主机
+Location { //把特殊类型的文件定义到这，如php或者png,jpg|jpeg|png|gif
+} // 
+}
+Server2 {
+}
+}
